@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "732203376303",
+    "project_id": "smart-kuehlschrank81",
+    "storage_bucket": "smart-kuehlschrank81.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:732203376303:android:ef29af1a6cfd9520cafe5a",
+        "android_client_info": {
+          "package_name": "com.example.projekt"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMeejRb1Vz8weXXY7xIJcdpz5hRFThJSg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:732203376303:android:0f31b7ad10db7571cafe5a",
+        "android_client_info": {
+          "package_name": "com.example.smart_fridge_admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMeejRb1Vz8weXXY7xIJcdpz5hRFThJSg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:732203376303:android:2dda475b99da1286cafe5a",
+        "android_client_info": {
+          "package_name": "com.example.smart_kuhlschrank"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMeejRb1Vz8weXXY7xIJcdpz5hRFThJSg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
