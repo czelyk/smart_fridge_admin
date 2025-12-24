@@ -13,6 +13,9 @@ class AdminDashboard extends StatefulWidget {
 class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
   bool _isLoading = false;
+  
+  // FİLTRELEME İÇİN
+  bool _showRealUsersOnly = false; 
 
   late List<Widget> _pages;
 
@@ -21,7 +24,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     super.initState();
     _pages = [
       const MarketAnalysisPage(),
-      const UserTrackingPage(),
+      const SizedBox.shrink(), // Placeholder for UserTrackingPage
       const AlertsPage(),
     ];
   }
@@ -40,7 +43,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
         await _deleteSubCollection(doc.reference, 'platforms');
         await _deleteSubCollection(doc.reference, 'recipes');
         await _deleteSubCollection(doc.reference, 'shopping_list');
-        // Eski kalıntıları da temizle
         await _deleteSubCollection(doc.reference, 'consumption_logs');
         await _deleteSubCollection(doc.reference, 'fridge_inventory');
         
@@ -187,12 +189,45 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    // Sayfa seçimi
+    Widget bodyContent;
+    switch (_selectedIndex) {
+      case 0:
+        bodyContent = const MarketAnalysisPage();
+        break;
+      case 1:
+        // Real User filtresini parametre olarak geçiyoruz
+        bodyContent = UserTrackingPage(showRealUsersOnly: _showRealUsersOnly);
+        break;
+      case 2:
+        bodyContent = const AlertsPage();
+        break;
+      default:
+        bodyContent = const MarketAnalysisPage();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Smart Fridge Admin'),
         centerTitle: true,
         backgroundColor: Colors.teal.shade900,
         actions: [
+          // FİLTRE BUTONU (Sadece Users sekmesinde göster)
+          if (_selectedIndex == 1)
+            IconButton(
+              icon: Icon(_showRealUsersOnly ? Icons.filter_alt : Icons.filter_alt_off),
+              tooltip: _showRealUsersOnly ? "Show All Users" : "Show Real Users Only",
+              onPressed: () {
+                setState(() {
+                  _showRealUsersOnly = !_showRealUsersOnly;
+                });
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(_showRealUsersOnly ? "Showing Real Users Only" : "Showing All Users"),
+                  duration: const Duration(seconds: 1),
+                ));
+              },
+            ),
+
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'normal') _generateFakeData(simulatePowerOutage: false);
@@ -210,7 +245,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
         ],
       ),
-      body: _pages[_selectedIndex],
+      body: bodyContent,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (int index) {
@@ -328,10 +363,11 @@ class _LegendItem extends StatelessWidget {
 }
 
 // -----------------------------------------------------------------------------
-// 2. USER TRACKING
+// 2. USER TRACKING (Sıralama Kaldırıldı)
 // -----------------------------------------------------------------------------
 class UserTrackingPage extends StatelessWidget {
-  const UserTrackingPage({super.key});
+  final bool showRealUsersOnly;
+  const UserTrackingPage({super.key, this.showRealUsersOnly = false});
 
   String _getFlagEmoji(String countryCode) {
     if (countryCode.isEmpty) return '🌍';
@@ -347,33 +383,60 @@ class UserTrackingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // DÜZELTME: orderBy('createdAt') KALDIRILDI.
+    // Böylece tarihi eksik olan gerçek kullanıcılar da listelenir.
+    Query query = FirebaseFirestore.instance.collection('users');
+    
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').orderBy('createdAt', descending: true).snapshots(),
+      stream: query.snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        final users = snapshot.data!.docs;
+        
+        var users = snapshot.data!.docs;
+        
+        if (showRealUsersOnly) {
+          users = users.where((doc) {
+             final data = doc.data() as Map<String, dynamic>;
+             return data['isFake'] != true;
+          }).toList();
+        }
+
+        if (users.isEmpty) return const Center(child: Text("No users found."));
 
         return ListView.builder(
           itemCount: users.length,
           itemBuilder: (context, index) {
             final userDoc = users[index];
             final userData = userDoc.data() as Map<String, dynamic>;
-            final email = userData['email'] ?? 'Unknown';
-            final profileType = userData['profileType'] ?? 'User';
+            final email = userData['email'] ?? 'Unknown User';
+            final profileType = userData['profileType'] ?? 'Standard';
             final countryCode = userData['countryCode'] ?? '';
             final languageCode = userData['languageCode'] ?? '';
 
             bool isFake = userData['isFake'] == true;
+            bool isRealUser = !isFake;
 
             return Card(
-              color: isFake ? Colors.teal.shade900.withOpacity(0.3) : null,
+              elevation: isRealUser ? 4 : 1,
+              shape: isRealUser 
+                ? RoundedRectangleBorder(side: const BorderSide(color: Colors.amber, width: 2), borderRadius: BorderRadius.circular(12))
+                : null,
+              color: isFake ? Colors.teal.shade900.withOpacity(0.3) : Colors.grey.shade800,
+              
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: ExpansionTile(
                 leading: CircleAvatar(
-                  backgroundColor: Colors.teal.shade800,
-                  child: Text(_getFlagEmoji(countryCode), style: const TextStyle(fontSize: 20)),
+                  backgroundColor: isRealUser ? Colors.amber.shade800 : Colors.teal.shade800,
+                  child: isRealUser 
+                    ? const Icon(Icons.person, color: Colors.white) 
+                    : Text(_getFlagEmoji(countryCode), style: const TextStyle(fontSize: 20)),
                 ),
-                title: Text(email, style: const TextStyle(fontWeight: FontWeight.bold)),
+                title: Row(
+                  children: [
+                    Expanded(child: Text(email, style: TextStyle(fontWeight: FontWeight.bold, color: isRealUser ? Colors.amberAccent : Colors.white))),
+                    if (isRealUser) const Chip(label: Text("REAL", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)), backgroundColor: Colors.amber, padding: EdgeInsets.all(0), labelPadding: EdgeInsets.symmetric(horizontal: 8))
+                  ],
+                ),
                 subtitle: Text("$profileType • $countryCode / $languageCode", style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 children: [
                   _FridgeStatusWidget(userId: userDoc.id),
@@ -440,7 +503,7 @@ class _FridgeStatusWidget extends StatelessWidget {
   }
 }
 
-// YENİ: Platform (Raf) Bilgilerini DÜZENLENEBİLİR Yapan Widget
+// Platform Widget (Aynı)
 class _FridgePlatformsWidget extends StatelessWidget {
   final String userId;
   const _FridgePlatformsWidget({required this.userId});
@@ -458,7 +521,6 @@ class _FridgePlatformsWidget extends StatelessWidget {
     }
   }
 
-  // Ağırlık Güncelleme Penceresi
   void _showEditWeightDialog(BuildContext context, DocumentReference platformRef, String name, double currentWeight) {
     final TextEditingController _controller = TextEditingController(text: currentWeight.toString());
     
@@ -483,12 +545,10 @@ class _FridgePlatformsWidget extends StatelessWidget {
             ),
             ElevatedButton(
               onPressed: () {
-                // Virgül veya nokta kullanımını düzelt
                 String text = _controller.text.replaceAll(',', '.');
                 double? newVal = double.tryParse(text);
                 
                 if (newVal != null) {
-                  // Firebase Güncelleme
                   platformRef.update({'weight': newVal});
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Weight updated successfully!"), backgroundColor: Colors.green));
@@ -539,7 +599,6 @@ class _FridgePlatformsWidget extends StatelessWidget {
                   children: [
                     Text("${weight.toStringAsFixed(2)} kg", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                     const SizedBox(width: 8),
-                    // DÜZENLEME BUTONU
                     IconButton(
                       icon: const Icon(Icons.edit, size: 18, color: Colors.orangeAccent),
                       tooltip: 'Edit Weight',
