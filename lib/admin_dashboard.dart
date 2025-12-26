@@ -26,6 +26,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       const SizedBox.shrink(), // UserTrackingPage (Parametreli)
       const GlobalInsightsPage(), 
       const AlertsPage(),
+      const RecipeTrendsPage(),
     ];
   }
 
@@ -240,6 +241,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 1: bodyContent = UserTrackingPage(showRealUsersOnly: _showRealUsersOnly); break;
       case 2: bodyContent = const GlobalInsightsPage(); break;
       case 3: bodyContent = const AlertsPage(); break;
+      case 4: bodyContent = const RecipeTrendsPage(); break;
       default: bodyContent = const MarketAnalysisPage();
     }
 
@@ -279,6 +281,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           NavigationDestination(icon: Icon(Icons.people), label: 'Users'),
           NavigationDestination(icon: Icon(Icons.public), label: 'Global'), 
           NavigationDestination(icon: Icon(Icons.warning), label: 'Alerts'),
+          NavigationDestination(icon: Icon(Icons.restaurant_menu), label: 'Recipes'),
         ],
       ),
     );
@@ -624,4 +627,146 @@ class AlertsPage extends StatelessWidget {
   const AlertsPage({super.key});
   @override
   Widget build(BuildContext context) { return const Center(child: Text("Alerts System Active")); }
+}
+
+// -----------------------------------------------------------------------------
+// 5. RECIPE TRENDS (NEW)
+// -----------------------------------------------------------------------------
+class RecipeTrendsPage extends StatefulWidget {
+  const RecipeTrendsPage({super.key});
+
+  @override
+  State<RecipeTrendsPage> createState() => _RecipeTrendsPageState();
+}
+
+class _RecipeTrendsPageState extends State<RecipeTrendsPage> {
+  bool _loading = true;
+  Map<String, double> _avgCalories = {};
+  
+  @override
+  void initState() {
+    super.initState();
+    _analyzeRecipes();
+  }
+
+  Future<void> _analyzeRecipes() async {
+    final firestore = FirebaseFirestore.instance;
+    Map<String, List<int>> countryCalories = {}; 
+
+    try {
+      final usersSnapshot = await firestore.collection('users').get();
+      for (var userDoc in usersSnapshot.docs) {
+         // Optimization: If we stored country in user, we use it.
+         String country = userDoc.data()['countryCode'] ?? 'Unknown';
+         if (country == 'Unknown') continue;
+
+         final recipesSnapshot = await userDoc.reference.collection('recipes').get();
+         for (var recipeDoc in recipesSnapshot.docs) {
+            // recipe calories might be string or int. The faker generates int, but let's be safe.
+            var calData = recipeDoc.data()['calories'];
+            int cal = 0;
+            if (calData is int) cal = calData;
+            else if (calData is String) cal = int.tryParse(calData) ?? 0;
+            
+            if (cal > 0) {
+              if (!countryCalories.containsKey(country)) {
+                countryCalories[country] = [];
+              }
+              countryCalories[country]!.add(cal);
+            }
+         }
+      }
+    } catch (e) {
+      print("Error analyzing recipes: $e");
+    }
+
+    Map<String, double> finalStats = {};
+    countryCalories.forEach((country, calories) {
+       if (calories.isNotEmpty) {
+         double avg = calories.reduce((a, b) => a + b) / calories.length;
+         finalStats[country] = avg;
+       }
+    });
+
+    if (mounted) {
+      setState(() {
+        _avgCalories = finalStats;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+     if (_loading) return const Center(child: CircularProgressIndicator());
+     
+     if (_avgCalories.isEmpty) {
+       return Center(child: Column(
+         mainAxisAlignment: MainAxisAlignment.center,
+         children: [
+           const Text("No recipe data found."),
+           const SizedBox(height: 10),
+           ElevatedButton(onPressed: _analyzeRecipes, child: const Text("Refresh"))
+         ],
+       ));
+     }
+
+     // Sort by calories
+     var sortedEntries = _avgCalories.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+     
+     return ListView(
+       padding: const EdgeInsets.all(16),
+       children: [
+         const Text("🔥 Average Calories per Recipe by Country", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+         const SizedBox(height: 8),
+         const Text("Analysis of user recipe collections.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+         const SizedBox(height: 20),
+         Container(
+           height: 300,
+           padding: const EdgeInsets.all(16),
+           decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(16)),
+           child: BarChart(
+             BarChartData(
+               alignment: BarChartAlignment.spaceAround,
+               barTouchData: BarTouchData(enabled: true),
+               titlesData: FlTitlesData(
+                 leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+                 bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 40,
+                      getTitlesWidget: (value, meta) {
+                        if (value.toInt() >= sortedEntries.length) return const Text('');
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(sortedEntries[value.toInt()].key, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        );
+                      }
+                    )
+                 ),
+                 topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                 rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+               ),
+               barGroups: sortedEntries.asMap().entries.map((e) {
+                  return BarChartGroupData(
+                    x: e.key,
+                    barRods: [
+                      BarChartRodData(toY: e.value.value, color: Colors.orangeAccent, width: 16, borderRadius: BorderRadius.circular(4))
+                    ]
+                  );
+               }).toList(),
+               borderData: FlBorderData(show: false),
+               gridData: const FlGridData(show: true, drawVerticalLine: false),
+             )
+           ),
+         ),
+         const SizedBox(height: 20),
+         ...sortedEntries.map((e) => ListTile(
+           leading: Text(e.key, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+           title: Text("${e.value.toStringAsFixed(0)} kcal / meal"),
+           trailing: Icon(Icons.local_fire_department, color: e.value > 600 ? Colors.red : Colors.amber),
+         ))
+       ],
+     );
+  }
 }
