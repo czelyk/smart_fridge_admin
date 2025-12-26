@@ -27,6 +27,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       const GlobalInsightsPage(), 
       const AlertsPage(),
       const RecipeTrendsPage(),
+      const InventoryHealthPage(),
     ];
   }
 
@@ -242,6 +243,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 2: bodyContent = const GlobalInsightsPage(); break;
       case 3: bodyContent = const AlertsPage(); break;
       case 4: bodyContent = const RecipeTrendsPage(); break;
+      case 5: bodyContent = const InventoryHealthPage(); break;
       default: bodyContent = const MarketAnalysisPage();
     }
 
@@ -282,6 +284,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           NavigationDestination(icon: Icon(Icons.public), label: 'Global'), 
           NavigationDestination(icon: Icon(Icons.warning), label: 'Alerts'),
           NavigationDestination(icon: Icon(Icons.restaurant_menu), label: 'Recipes'),
+          NavigationDestination(icon: Icon(Icons.inventory), label: 'Inventory'),
         ],
       ),
     );
@@ -768,5 +771,153 @@ class _RecipeTrendsPageState extends State<RecipeTrendsPage> {
          ))
        ],
      );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 6. INVENTORY HEALTH (NEW)
+// -----------------------------------------------------------------------------
+class InventoryHealthPage extends StatefulWidget {
+  const InventoryHealthPage({super.key});
+
+  @override
+  State<InventoryHealthPage> createState() => _InventoryHealthPageState();
+}
+
+class _InventoryHealthPageState extends State<InventoryHealthPage> {
+  bool _loading = true;
+  Map<String, double> _countryFillRate = {}; // Country -> Average Percentage
+
+  @override
+  void initState() {
+    super.initState();
+    _analyzeInventory();
+  }
+
+  Future<void> _analyzeInventory() async {
+    final firestore = FirebaseFirestore.instance;
+    Map<String, List<double>> countryWeights = {};
+
+    try {
+      final usersSnapshot = await firestore.collection('users').get();
+      for (var userDoc in usersSnapshot.docs) {
+        String country = userDoc.data()['countryCode'] ?? 'Unknown';
+        if (country == 'Unknown') continue;
+
+        final platformsSnapshot = await userDoc.reference.collection('platforms').get();
+        double totalUserWeight = 0;
+        for (var platformDoc in platformsSnapshot.docs) {
+            var w = platformDoc.data()['weight'];
+            if (w is double) totalUserWeight += w;
+            else if (w is int) totalUserWeight += w.toDouble();
+        }
+        
+        // Max capacity assumption: 3 shelves * 5.0 max weight = 15.0
+        double maxCapacity = 15.0; 
+        double fillRate = (totalUserWeight / maxCapacity) * 100;
+        if (fillRate > 100) fillRate = 100;
+
+        if (!countryWeights.containsKey(country)) {
+          countryWeights[country] = [];
+        }
+        countryWeights[country]!.add(fillRate);
+      }
+    } catch (e) {
+      print("Error analyzing inventory: $e");
+    }
+
+    Map<String, double> finalStats = {};
+    countryWeights.forEach((country, rates) {
+       if (rates.isNotEmpty) {
+         double avg = rates.reduce((a, b) => a + b) / rates.length;
+         finalStats[country] = avg;
+       }
+    });
+
+    if (mounted) {
+      setState(() {
+        _countryFillRate = finalStats;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
+    if (_countryFillRate.isEmpty) {
+       return Center(child: Column(
+         mainAxisAlignment: MainAxisAlignment.center,
+         children: [
+           const Text("No inventory data found."),
+           const SizedBox(height: 10),
+           ElevatedButton(onPressed: _analyzeInventory, child: const Text("Refresh"))
+         ],
+       ));
+    }
+
+    var sortedEntries = _countryFillRate.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text("📦 Fridge Inventory Health", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text("Average fridge fill rate by country based on weight sensors.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 20),
+
+        Container(
+           height: 300,
+           padding: const EdgeInsets.all(16),
+           decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(16)),
+           child: BarChart(
+             BarChartData(
+               alignment: BarChartAlignment.spaceAround,
+               barTouchData: BarTouchData(enabled: true),
+               titlesData: FlTitlesData(
+                 leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+                 bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 40,
+                      getTitlesWidget: (value, meta) {
+                        if (value.toInt() >= sortedEntries.length) return const Text('');
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(sortedEntries[value.toInt()].key, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        );
+                      }
+                    )
+                 ),
+                 topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                 rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+               ),
+               maxY: 100,
+               barGroups: sortedEntries.asMap().entries.map((e) {
+                  Color barColor = e.value.value > 75 ? Colors.green : (e.value.value > 40 ? Colors.amber : Colors.red);
+                  return BarChartGroupData(
+                    x: e.key,
+                    barRods: [
+                      BarChartRodData(toY: e.value.value, color: barColor, width: 16, borderRadius: BorderRadius.circular(4))
+                    ]
+                  );
+               }).toList(),
+               borderData: FlBorderData(show: false),
+               gridData: const FlGridData(show: true, drawVerticalLine: false, horizontalInterval: 20),
+             )
+           ),
+         ),
+         const SizedBox(height: 20),
+         ...sortedEntries.map((e) {
+            Color statusColor = e.value > 75 ? Colors.green : (e.value > 40 ? Colors.amber : Colors.red);
+            return ListTile(
+              leading: Text(e.key, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              title: LinearProgressIndicator(value: e.value / 100, color: statusColor, backgroundColor: Colors.grey.shade800, minHeight: 10),
+              trailing: Text("${e.value.toStringAsFixed(1)}% Full", style: TextStyle(color: statusColor, fontWeight: FontWeight.bold)),
+            );
+         })
+      ],
+    );
   }
 }
