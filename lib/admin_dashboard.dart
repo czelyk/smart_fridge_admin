@@ -28,6 +28,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       const AlertsPage(),
       const RecipeTrendsPage(),
       const InventoryHealthPage(),
+      const AssociationRulesPage(),
     ];
   }
 
@@ -244,6 +245,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 3: bodyContent = const AlertsPage(); break;
       case 4: bodyContent = const RecipeTrendsPage(); break;
       case 5: bodyContent = const InventoryHealthPage(); break;
+      case 6: bodyContent = const AssociationRulesPage(); break;
       default: bodyContent = const MarketAnalysisPage();
     }
 
@@ -285,6 +287,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           NavigationDestination(icon: Icon(Icons.warning), label: 'Alerts'),
           NavigationDestination(icon: Icon(Icons.restaurant_menu), label: 'Recipes'),
           NavigationDestination(icon: Icon(Icons.inventory), label: 'Inventory'),
+          NavigationDestination(icon: Icon(Icons.hub), label: 'Patterns'),
         ],
       ),
     );
@@ -918,6 +921,180 @@ class _InventoryHealthPageState extends State<InventoryHealthPage> {
             );
          })
       ],
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 7. ASSOCIATION RULES (NEW)
+// -----------------------------------------------------------------------------
+class AssociationRulesPage extends StatefulWidget {
+  const AssociationRulesPage({super.key});
+
+  @override
+  State<AssociationRulesPage> createState() => _AssociationRulesPageState();
+}
+
+class _AssociationRulesPageState extends State<AssociationRulesPage> {
+  bool _loading = true;
+  List<Map<String, dynamic>> _rules = []; // { 'itemA': 'Milk', 'itemB': 'Eggs', 'confidence': 0.75 }
+
+  @override
+  void initState() {
+    super.initState();
+    _mineAssociationRules();
+  }
+
+  Future<void> _mineAssociationRules() async {
+    setState(() => _loading = true);
+    final firestore = FirebaseFirestore.instance;
+    
+    // 1. Transaction verilerini topla
+    List<Set<String>> transactions = [];
+    
+    try {
+      final usersSnapshot = await firestore.collection('users').get();
+      // Örneklem boyutunu sınırlayalım performans için (ilk 50 user)
+      // Gerçekte cloud function kullanılmalı
+      var processDocs = usersSnapshot.docs.take(50).toList();
+      
+      for (var userDoc in processDocs) {
+         final listSnapshot = await userDoc.reference.collection('shopping_list').get();
+         if (listSnapshot.docs.isEmpty) continue;
+         
+         Set<String> basket = {};
+         for (var itemDoc in listSnapshot.docs) {
+            String name = itemDoc.data()['name'] ?? '';
+            if (name.isNotEmpty) basket.add(name);
+         }
+         if (basket.length > 1) transactions.add(basket);
+      }
+    } catch (e) {
+      print("Error mining rules: $e");
+    }
+
+    // 2. Basit Apriori Benzeri Hesaplama (Pairs)
+    Map<String, int> itemSupport = {};
+    Map<String, int> pairSupport = {};
+    int totalTransactions = transactions.length;
+
+    if (totalTransactions == 0) {
+      if (mounted) setState(() { _rules = []; _loading = false; });
+      return;
+    }
+
+    for (var basket in transactions) {
+       List<String> items = basket.toList();
+       
+       // Single Item Support
+       for (var item in items) {
+         itemSupport[item] = (itemSupport[item] ?? 0) + 1;
+       }
+
+       // Pair Support
+       for (int i = 0; i < items.length; i++) {
+         for (int j = i + 1; j < items.length; j++) {
+            List<String> pair = [items[i], items[j]]..sort();
+            String pairKey = "${pair[0]}::${pair[1]}";
+            pairSupport[pairKey] = (pairSupport[pairKey] ?? 0) + 1;
+         }
+       }
+    }
+
+    // 3. Kuralları Oluştur (Min Confidence > 0.1)
+    List<Map<String, dynamic>> foundRules = [];
+
+    pairSupport.forEach((pairKey, count) {
+       List<String> parts = pairKey.split("::");
+       String itemA = parts[0];
+       String itemB = parts[1];
+
+       // Rule: A -> B
+       double confAtoB = count / (itemSupport[itemA] ?? 1);
+       if (confAtoB > 0.15) { // %15 eşik
+         foundRules.add({
+           'rule': "$itemA ➡ $itemB",
+           'confidence': confAtoB,
+           'support': count
+         });
+       }
+
+       // Rule: B -> A
+       double confBtoA = count / (itemSupport[itemB] ?? 1);
+       if (confBtoA > 0.15) {
+          foundRules.add({
+           'rule': "$itemB ➡ $itemA",
+           'confidence': confBtoA,
+           'support': count
+         });
+       }
+    });
+
+    // Sırala: En yüksek güvenilirlik en üstte
+    foundRules.sort((a, b) => b['confidence'].compareTo(a['confidence']));
+
+    if (mounted) {
+      setState(() {
+        _rules = foundRules.take(50).toList(); // En iyi 50 kural
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
+    if (_rules.isEmpty) {
+      return Center(child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.hub, size: 64, color: Colors.grey),
+          const SizedBox(height: 16),
+          const Text("No significant patterns found yet."),
+          const Text("Try adding more users/data."),
+          const SizedBox(height: 16),
+          ElevatedButton(onPressed: _mineAssociationRules, child: const Text("Run Mining Again"))
+        ],
+      ));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _rules.length + 1,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+           return const Padding(
+             padding: EdgeInsets.only(bottom: 20),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 Text("🧠 AI Shopping Patterns", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                 SizedBox(height: 8),
+                 Text("Detected correlations between products based on user purchase history (Association Rules).", style: TextStyle(color: Colors.grey)),
+               ],
+             ),
+           );
+        }
+        
+        final rule = _rules[index - 1];
+        final double confidence = rule['confidence'];
+        Color confColor = confidence > 0.6 ? Colors.green : (confidence > 0.4 ? Colors.amber : Colors.grey);
+
+        return Card(
+          color: Colors.white10,
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: confColor.withOpacity(0.2),
+              child: Text("${(confidence * 100).toInt()}%", style: TextStyle(color: confColor, fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+            title: Text(rule['rule'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            subtitle: Text("Support: Observed in ${rule['support']} baskets"),
+            trailing: const Icon(Icons.arrow_forward, color: Colors.white54),
+          ),
+        );
+      },
     );
   }
 }
