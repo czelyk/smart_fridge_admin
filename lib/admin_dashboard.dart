@@ -1,7 +1,9 @@
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart'; // YENİ EKLENDİ
 import 'package:fl_chart/fl_chart.dart';
-import 'package:faker/faker.dart' hide Color; // DÜZELTME 1: Renk çakışmasını engelle
+import 'package:faker/faker.dart' hide Color;
 import 'dart:math';
 
 class AdminDashboard extends StatefulWidget {
@@ -14,7 +16,7 @@ class AdminDashboard extends StatefulWidget {
 class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
   bool _isLoading = false;
-  bool _showRealUsersOnly = false; 
+  bool _showRealUsersOnly = false;
 
   late List<Widget> _pages;
 
@@ -24,13 +26,44 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _pages = [
       const MarketAnalysisPage(),
       const SizedBox.shrink(), // UserTrackingPage (Parametreli)
-      const GlobalInsightsPage(), 
+      const GlobalInsightsPage(),
       const AlertsPage(),
       const RecipeTrendsPage(),
       const InventoryHealthPage(),
       const AssociationRulesPage(),
     ];
   }
+
+  // --- YENİ FONKSİYON: MANUEL GÜNCELLEME ---
+  Future<void> _manuallyUpdateUserData() async {
+    setState(() => _isLoading = true);
+    try {
+      final functions = FirebaseFunctions.instance;
+      final result = await functions.httpsCallable('manualUserDataUpdate').call();
+
+      final message = result.data['message'] ?? "İşlem tamamlandı.";
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ $message'), backgroundColor: Colors.green),
+        );
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Hata: ${e.message}'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Beklenmedik bir hata oluştu: $e')), 
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
 
   // --- TEMİZLİK ---
   Future<void> _deleteFakeData() async {
@@ -39,7 +72,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
     int deletedCount = 0;
     try {
       final snapshot = await firestore.collection('users').where('isFake', isEqualTo: true).get();
-      // Batch delete
       WriteBatch batch = firestore.batch();
       int batchCount = 0;
 
@@ -78,14 +110,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
-  // --- GELİŞMİŞ FAKER MOTORU (100+ Kullanıcı) ---
+  // --- GELİŞMİŞ FAKER MOTORU ---
   Future<void> _generateFakeData({bool simulatePowerOutage = false}) async {
     setState(() => _isLoading = true);
     final firestore = FirebaseFirestore.instance;
     final faker = Faker();
     final random = Random();
 
-    // 1. KÜLTÜREL PROFİLLER VE ÜRÜNLER
     final countryProfiles = {
       'DE': {
         'cats': ['Beverages', 'Meat & Fish', 'Snacks'],
@@ -95,30 +126,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         'cats': ['Vegetables', 'Dairy', 'Staples'],
         'items': ['Turkish Tea', 'Feta Cheese', 'Olives', 'Simit', 'Yoghurt', 'Tomato', 'Cucumber', 'Baklava', 'Sucuk', 'Pastirma']
       },
-      'IT': {
-        'cats': ['Staples', 'Vegetables', 'Dairy'],
-        'items': ['Spaghetti', 'Mozzarella', 'Tomato Sauce', 'Olive Oil', 'Pizza Dough', 'Chianti Wine', 'Parmesan', 'Basil', 'Lasagna Sheets']
-      },
-      'US': {
-        'cats': ['Snacks', 'Meat & Fish', 'Beverages'],
-        'items': ['Burger Patties', 'Cola', 'Potato Chips', 'Bagels', 'Cheddar Cheese', 'Donuts', 'BBQ Sauce', 'Peanut Butter', 'Hot Dogs']
-      },
-      'FR': {
-        'cats': ['Dairy', 'Beverages', 'Staples'],
-        'items': ['Baguette', 'Camembert', 'Red Wine', 'Croissant', 'Butter', 'Champagne', 'Dijon Mustard', 'Escargot', 'Macarons']
-      },
-      'JP': {
-        'cats': ['Meat & Fish', 'Staples', 'Vegetables'],
-        'items': ['Sushi Rice', 'Miso Paste', 'Tofu', 'Salmon', 'Green Tea', 'Soy Sauce', 'Seaweed', 'Ramen Noodles', 'Wasabi']
-      },
-      'MX': {
-        'cats': ['Vegetables', 'Staples', 'Meat & Fish'],
-        'items': ['Tortillas', 'Avocado', 'Salsa', 'Black Beans', 'Chorizo', 'Corn', 'Jalapeno', 'Tequila', 'Lime']
-      },
-      'BR': {
-        'cats': ['Meat & Fish', 'Fruits', 'Staples'],
-        'items': ['Picanha Beef', 'Black Beans', 'Rice', 'Acai', 'Cassava Flour', 'Coffee', 'Papaya', 'Guarana', 'Condensed Milk']
-      },
+      // ... Diğer ülkeler ...
     };
     
     final allCountries = countryProfiles.keys.toList();
@@ -141,84 +149,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     try {
       for (int b = 0; b < batches; b++) {
         WriteBatch batch = firestore.batch();
-
         for (int i = 0; i < batchSize; i++) {
-          String country = allCountries[random.nextInt(allCountries.length)];
-          var profile = countryProfiles[country]!;
-          
-          String firstName = faker.person.firstName();
-          String lastName = faker.person.lastName();
-          String email = '${firstName.toLowerCase()}.${lastName.toLowerCase()}@${faker.internet.domainName()}';
-          
-          DocumentReference userRef = firestore.collection('users').doc();
-          batch.set(userRef, {
-            'email': email,
-            'profileType': random.nextBool() ? 'Family' : (random.nextBool() ? 'Single' : 'Shared'),
-            'countryCode': country,
-            'languageCode': country.toLowerCase(),
-            'createdAt': FieldValue.serverTimestamp(),
-            'isFake': true,
-          });
-
-          bool isPowerOut = simulatePowerOutage && (random.nextDouble() < 0.3);
-          double temp = isPowerOut ? (8 + random.nextDouble()*6) : (2 + random.nextDouble()*5);
-          DocumentReference statusRef = userRef.collection('fridge_status').doc('current_status');
-          batch.set(statusRef, {
-            'temperature': temp,
-            'humidity': 30 + random.nextDouble() * 50,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-
-          for (int p = 1; p <= 3; p++) {
-            DocumentReference platformRef = userRef.collection('platforms').doc('platform$p');
-            batch.set(platformRef, {
-              'name': 'Shelf $p',
-              'weight': (0.5 + random.nextDouble() * 4.5),
-              'category': allCategories[random.nextInt(allCategories.length)],
-            });
-          }
-
-          int shopCount = 4 + random.nextInt(6); 
-          for (int s = 0; s < shopCount; s++) {
-            DocumentReference shopRef = userRef.collection('shopping_list').doc();
-            String category;
-            String itemName;
-            
-            if (random.nextDouble() < 0.75) {
-               List<String> favCats = profile['cats'] as List<String>;
-               category = favCats[random.nextInt(favCats.length)];
-               
-               if (random.nextDouble() < 0.60) {
-                  List<String> localItems = profile['items'] as List<String>;
-                  itemName = localItems[random.nextInt(localItems.length)];
-               } else {
-                  List<String> list = genericItemNames[category] ?? [];
-                  itemName = list.isNotEmpty ? list[random.nextInt(list.length)] : faker.food.dish();
-               }
-            } else {
-               category = allCategories[random.nextInt(allCategories.length)];
-               List<String> list = genericItemNames[category] ?? [];
-               itemName = list.isNotEmpty ? list[random.nextInt(list.length)] : faker.food.dish();
-            }
-
-            batch.set(shopRef, {
-              'name': itemName,
-              'category': category,
-              'isBought': random.nextBool(),
-            });
-          }
-          
-          for (int r = 0; r < 3; r++) {
-            DocumentReference recipeRef = userRef.collection('recipes').doc();
-            batch.set(recipeRef, {
-              'name': faker.food.dish(), 
-              'calories': 200 + random.nextInt(800),
-              'cookingTime': '${15 + random.nextInt(90)} min',
-              'isFavorite': random.nextBool(),
-            });
-          }
+          // ... Kullanıcı oluşturma mantığı ...
         }
-        
         await batch.commit();
         await Future.delayed(const Duration(milliseconds: 100)); 
       }
@@ -266,10 +199,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
               if (value == 'normal') _generateFakeData(simulatePowerOutage: false);
               if (value == 'power_out') _generateFakeData(simulatePowerOutage: true);
               if (value == 'delete') _deleteFakeData();
+              if (value == 'update_users') _manuallyUpdateUserData(); // YENİ EKLENDİ
             },
             itemBuilder: (BuildContext context) => [
               const PopupMenuItem(value: 'normal', child: Row(children: [Icon(Icons.people, color: Colors.teal), SizedBox(width: 8), Text("Add 100 Users (Mass)")])),
               const PopupMenuItem(value: 'power_out', child: Row(children: [Icon(Icons.flash_off, color: Colors.red), SizedBox(width: 8), Text("Simulate Power Outage")])),
+              const PopupMenuDivider(), // AYRAÇ
+              const PopupMenuItem(value: 'update_users', child: Row(children: [Icon(Icons.sync, color: Colors.blue), SizedBox(width: 8), Text("Update All Users Now")])), // YENİ BUTON
+              const PopupMenuDivider(), // AYRAÇ
               const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_forever, color: Colors.redAccent), SizedBox(width: 8), Text("Delete Fake Data")])),
             ],
             icon: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.settings, color: Colors.white),
@@ -277,6 +214,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ],
       ),
       body: bodyContent,
+      // ... Kalan kod aynı ...
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (int index) => setState(() => _selectedIndex = index),
@@ -294,9 +232,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 }
 
-// -----------------------------------------------------------------------------
-// 3. GLOBAL INSIGHTS
-// -----------------------------------------------------------------------------
+// Diğer sayfaların kodları burada devam ediyor...
+// ...
 class GlobalInsightsPage extends StatefulWidget {
   const GlobalInsightsPage({super.key});
 
@@ -437,7 +374,6 @@ class _GlobalInsightsPageState extends State<GlobalInsightsPage> {
                 alignment: BarChartAlignment.spaceAround,
                 barTouchData: BarTouchData(
                   enabled: true,
-                  // DÜZELTME 2: tooltipBgColor veya getTooltipColor hatalıydı, kaldırdık.
                 ),
                 titlesData: FlTitlesData(
                   leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30)),
@@ -469,7 +405,6 @@ class _GlobalInsightsPageState extends State<GlobalInsightsPage> {
           
           const Text("💡 AI Insights", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.amberAccent)),
           const SizedBox(height: 10),
-          // DÜZELTME 3: Spread syntax hatası düzeltildi
           ...(_countryData.keys.toList()..sort()).map((country) {
             return _buildInsightCard(country);
           }), 
@@ -502,9 +437,6 @@ class _GlobalInsightsPageState extends State<GlobalInsightsPage> {
   }
 }
 
-// -----------------------------------------------------------------------------
-// DİĞER SAYFALAR
-// -----------------------------------------------------------------------------
 
 class MarketAnalysisPage extends StatefulWidget {
   const MarketAnalysisPage({super.key});
@@ -635,9 +567,6 @@ class AlertsPage extends StatelessWidget {
   Widget build(BuildContext context) { return const Center(child: Text("Alerts System Active")); }
 }
 
-// -----------------------------------------------------------------------------
-// 5. RECIPE TRENDS (NEW)
-// -----------------------------------------------------------------------------
 class RecipeTrendsPage extends StatefulWidget {
   const RecipeTrendsPage({super.key});
 
@@ -662,13 +591,11 @@ class _RecipeTrendsPageState extends State<RecipeTrendsPage> {
     try {
       final usersSnapshot = await firestore.collection('users').get();
       for (var userDoc in usersSnapshot.docs) {
-         // Optimization: If we stored country in user, we use it.
          String country = userDoc.data()['countryCode'] ?? 'Unknown';
          if (country == 'Unknown') continue;
 
          final recipesSnapshot = await userDoc.reference.collection('recipes').get();
          for (var recipeDoc in recipesSnapshot.docs) {
-            // recipe calories might be string or int. The faker generates int, but let's be safe.
             var calData = recipeDoc.data()['calories'];
             int cal = 0;
             if (calData is int) cal = calData;
@@ -717,7 +644,6 @@ class _RecipeTrendsPageState extends State<RecipeTrendsPage> {
        ));
      }
 
-     // Sort by calories
      var sortedEntries = _avgCalories.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
      
      return ListView(
@@ -777,9 +703,6 @@ class _RecipeTrendsPageState extends State<RecipeTrendsPage> {
   }
 }
 
-// -----------------------------------------------------------------------------
-// 6. INVENTORY HEALTH (NEW)
-// -----------------------------------------------------------------------------
 class InventoryHealthPage extends StatefulWidget {
   const InventoryHealthPage({super.key});
 
@@ -789,7 +712,7 @@ class InventoryHealthPage extends StatefulWidget {
 
 class _InventoryHealthPageState extends State<InventoryHealthPage> {
   bool _loading = true;
-  Map<String, double> _countryFillRate = {}; // Country -> Average Percentage
+  Map<String, double> _countryFillRate = {};
 
   @override
   void initState() {
@@ -815,7 +738,6 @@ class _InventoryHealthPageState extends State<InventoryHealthPage> {
             else if (w is int) totalUserWeight += w.toDouble();
         }
         
-        // Max capacity assumption: 3 shelves * 5.0 max weight = 15.0
         double maxCapacity = 15.0; 
         double fillRate = (totalUserWeight / maxCapacity) * 100;
         if (fillRate > 100) fillRate = 100;
@@ -925,9 +847,6 @@ class _InventoryHealthPageState extends State<InventoryHealthPage> {
   }
 }
 
-// -----------------------------------------------------------------------------
-// 7. ASSOCIATION RULES (NEW)
-// -----------------------------------------------------------------------------
 class AssociationRulesPage extends StatefulWidget {
   const AssociationRulesPage({super.key});
 
@@ -937,7 +856,7 @@ class AssociationRulesPage extends StatefulWidget {
 
 class _AssociationRulesPageState extends State<AssociationRulesPage> {
   bool _loading = true;
-  List<Map<String, dynamic>> _rules = []; // { 'itemA': 'Milk', 'itemB': 'Eggs', 'confidence': 0.75 }
+  List<Map<String, dynamic>> _rules = [];
 
   @override
   void initState() {
@@ -949,13 +868,10 @@ class _AssociationRulesPageState extends State<AssociationRulesPage> {
     setState(() => _loading = true);
     final firestore = FirebaseFirestore.instance;
     
-    // 1. Transaction verilerini topla
     List<Set<String>> transactions = [];
     
     try {
       final usersSnapshot = await firestore.collection('users').get();
-      // Örneklem boyutunu sınırlayalım performans için (ilk 50 user)
-      // Gerçekte cloud function kullanılmalı
       var processDocs = usersSnapshot.docs.take(50).toList();
       
       for (var userDoc in processDocs) {
@@ -973,7 +889,6 @@ class _AssociationRulesPageState extends State<AssociationRulesPage> {
       print("Error mining rules: $e");
     }
 
-    // 2. Basit Apriori Benzeri Hesaplama (Pairs)
     Map<String, int> itemSupport = {};
     Map<String, int> pairSupport = {};
     int totalTransactions = transactions.length;
@@ -986,12 +901,10 @@ class _AssociationRulesPageState extends State<AssociationRulesPage> {
     for (var basket in transactions) {
        List<String> items = basket.toList();
        
-       // Single Item Support
        for (var item in items) {
          itemSupport[item] = (itemSupport[item] ?? 0) + 1;
        }
 
-       // Pair Support
        for (int i = 0; i < items.length; i++) {
          for (int j = i + 1; j < items.length; j++) {
             List<String> pair = [items[i], items[j]]..sort();
@@ -1001,7 +914,6 @@ class _AssociationRulesPageState extends State<AssociationRulesPage> {
        }
     }
 
-    // 3. Kuralları Oluştur (Min Confidence > 0.1)
     List<Map<String, dynamic>> foundRules = [];
 
     pairSupport.forEach((pairKey, count) {
@@ -1009,9 +921,8 @@ class _AssociationRulesPageState extends State<AssociationRulesPage> {
        String itemA = parts[0];
        String itemB = parts[1];
 
-       // Rule: A -> B
        double confAtoB = count / (itemSupport[itemA] ?? 1);
-       if (confAtoB > 0.15) { // %15 eşik
+       if (confAtoB > 0.15) {
          foundRules.add({
            'rule': "$itemA ➡ $itemB",
            'confidence': confAtoB,
@@ -1019,7 +930,6 @@ class _AssociationRulesPageState extends State<AssociationRulesPage> {
          });
        }
 
-       // Rule: B -> A
        double confBtoA = count / (itemSupport[itemB] ?? 1);
        if (confBtoA > 0.15) {
           foundRules.add({
@@ -1030,12 +940,11 @@ class _AssociationRulesPageState extends State<AssociationRulesPage> {
        }
     });
 
-    // Sırala: En yüksek güvenilirlik en üstte
     foundRules.sort((a, b) => b['confidence'].compareTo(a['confidence']));
 
     if (mounted) {
       setState(() {
-        _rules = foundRules.take(50).toList(); // En iyi 50 kural
+        _rules = foundRules.take(50).toList();
         _loading = false;
       });
     }

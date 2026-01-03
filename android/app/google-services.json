@@ -7,50 +7,27 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:732203376303:android:ef29af1a6cfd9520cafe5a",
-        "android_client_info": {
-          "package_name": "com.example.projekt"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyDMeejRb1Vz8weXXY7xIJcdpz5hRFThJSg"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
         "mobilesdk_app_id": "1:732203376303:android:0f31b7ad10db7571cafe5a",
         "android_client_info": {
-          "package_name": "com.example.smart_fridge_admin"
+          "package_name": "com.example.smart_fridge_admin",
+          "certificate_hash": [
+            {
+              "hash_algorithm": "SHA_1",
+              "hash_value": "B876C1207020BD8648AF5858B01BAB905A1F9299"
+            },
+            {
+              "hash_algorithm": "SHA_256",
+              "hash_value": "22AA0DD9007D0EBA59740794767924C603514E6780F455AAC4844323F7ADBA32"
+            }
+          ]
         }
       },
-      "oauth_client": [],
-      "api_key": [
+      "oauth_client": [
         {
-          "current_key": "AIzaSyDMeejRb1Vz8weXXY7xIJcdpz5hRFThJSg"
+          "client_id": "732203376303-kcs3a3gh1359q75gm6c8b9h5bfr08a8b.apps.googleusercontent.com",
+          "client_type": 3
         }
       ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:732203376303:android:2dda475b99da1286cafe5a",
-        "android_client_info": {
-          "package_name": "com.example.smart_kuhlschrank"
-        }
-      },
-      "oauth_client": [],
       "api_key": [
         {
           "current_key": "AIzaSyDMeejRb1Vz8weXXY7xIJcdpz5hRFThJSg"
