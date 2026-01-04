@@ -232,8 +232,123 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 }
 
-// Diğer sayfaların kodları burada devam ediyor...
-// ...
+// --- USER TRACKING PAGE (GELİŞTİRİLDİ) ---
+class UserTrackingPage extends StatelessWidget {
+  final bool showRealUsersOnly;
+  const UserTrackingPage({super.key, this.showRealUsersOnly = false});
+
+  String _getFlagEmoji(String countryCode) {
+    if (countryCode.isEmpty) return '🌍';
+    try {
+      int flagOffset = 0x1F1E6; int asciiOffset = 0x41;
+      return String.fromCharCode(flagOffset + countryCode.codeUnitAt(0) - asciiOffset) + String.fromCharCode(flagOffset + countryCode.codeUnitAt(1) - asciiOffset);
+    } catch (e) { return '🌍'; }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Query query = FirebaseFirestore.instance.collection('users');
+    return StreamBuilder<QuerySnapshot>(
+      stream: query.snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        var users = snapshot.data!.docs;
+        if (showRealUsersOnly) users = users.where((doc) => (doc.data() as Map)['isFake'] != true).toList();
+        
+        if (users.isEmpty) return const Center(child: Text("No users found."));
+
+        return ListView.builder(
+          itemCount: users.length,
+          itemBuilder: (context, index) {
+            final doc = users[index];
+            final data = doc.data() as Map<String, dynamic>;
+            bool isFake = data['isFake'] == true;
+            bool isReal = !isFake;
+            return Card(
+              color: isReal ? Colors.amber.shade900.withOpacity(0.3) : Colors.grey.shade900,
+              shape: isReal ? RoundedRectangleBorder(side: const BorderSide(color: Colors.amber, width: 2), borderRadius: BorderRadius.circular(10)) : null,
+              child: ExpansionTile(
+                leading: Text(_getFlagEmoji(data['countryCode']??''), style: const TextStyle(fontSize: 24)),
+                title: Text(data['email']??'Unknown'),
+                subtitle: Text("${data['countryCode']} - ${data['profileType']}"),
+                trailing: isReal ? const Icon(Icons.star, color: Colors.amber) : null,
+                children: [
+                   Padding(
+                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                         const Row(
+                           children: [
+                             Icon(Icons.kitchen, size: 16, color: Colors.tealAccent),
+                             SizedBox(width: 8),
+                             Text("Fridge Inventory:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.tealAccent)),
+                           ],
+                         ),
+                         const SizedBox(height: 4),
+                         _UserSubCollectionList(userRef: doc.reference, collectionName: 'fridge_inventory'),
+                         const SizedBox(height: 12),
+                         const Row(
+                           children: [
+                             Icon(Icons.shopping_cart, size: 16, color: Colors.orangeAccent),
+                             SizedBox(width: 8),
+                             Text("Shopping List:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
+                           ],
+                         ),
+                         const SizedBox(height: 4),
+                         _UserSubCollectionList(userRef: doc.reference, collectionName: 'shopping_list'),
+                         const SizedBox(height: 8),
+                       ],
+                     ),
+                   )
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// --- YARDIMCI WIDGET: ALT KOLEKSİYON LİSTELEME ---
+class _UserSubCollectionList extends StatelessWidget {
+  final DocumentReference userRef;
+  final String collectionName;
+  const _UserSubCollectionList({required this.userRef, required this.collectionName});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: userRef.collection(collectionName).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox(height: 20, child: LinearProgressIndicator(minHeight: 2));
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Text("No items found.", style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic));
+        
+        var items = snapshot.data!.docs;
+        return Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: items.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            final name = data['name'] ?? data['productName'] ?? 'Item';
+            final category = data['category'] ?? '';
+            final weight = data['weight'];
+            String label = name;
+            if (weight != null) label += " (${weight}kg)";
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white12)),
+              child: Text(label, style: const TextStyle(fontSize: 11)),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+}
+
 class GlobalInsightsPage extends StatefulWidget {
   const GlobalInsightsPage({super.key});
 
@@ -508,56 +623,6 @@ class _MarketAnalysisPageState extends State<MarketAnalysisPage> {
     if(c=='Dairy') return Colors.yellow.shade700;
     if(c=='Snacks') return Colors.purple;
     return Colors.grey;
-  }
-}
-
-class UserTrackingPage extends StatelessWidget {
-  final bool showRealUsersOnly;
-  const UserTrackingPage({super.key, this.showRealUsersOnly = false});
-
-  String _getFlagEmoji(String countryCode) {
-    if (countryCode.isEmpty) return '🌍';
-    try {
-      int flagOffset = 0x1F1E6; int asciiOffset = 0x41;
-      return String.fromCharCode(flagOffset + countryCode.codeUnitAt(0) - asciiOffset) + String.fromCharCode(flagOffset + countryCode.codeUnitAt(1) - asciiOffset);
-    } catch (e) { return '🌍'; }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Query query = FirebaseFirestore.instance.collection('users');
-    return StreamBuilder<QuerySnapshot>(
-      stream: query.snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        var users = snapshot.data!.docs;
-        if (showRealUsersOnly) users = users.where((doc) => (doc.data() as Map)['isFake'] != true).toList();
-        
-        if (users.isEmpty) return const Center(child: Text("No users found."));
-
-        return ListView.builder(
-          itemCount: users.length,
-          itemBuilder: (context, index) {
-            final data = users[index].data() as Map<String, dynamic>;
-            bool isFake = data['isFake'] == true;
-            bool isReal = !isFake;
-            return Card(
-              color: isReal ? Colors.amber.shade900.withOpacity(0.3) : Colors.grey.shade900,
-              shape: isReal ? RoundedRectangleBorder(side: BorderSide(color: Colors.amber, width: 2), borderRadius: BorderRadius.circular(10)) : null,
-              child: ExpansionTile(
-                leading: Text(_getFlagEmoji(data['countryCode']??''), style: const TextStyle(fontSize: 24)),
-                title: Text(data['email']??'Unknown'),
-                subtitle: Text("${data['countryCode']} - ${data['profileType']}"),
-                trailing: isReal ? const Icon(Icons.star, color: Colors.amber) : null,
-                children: [
-                   ListTile(title: const Text("Recent Shopping:"), subtitle: Text("Click Analysis tab for details."))
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 }
 
