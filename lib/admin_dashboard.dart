@@ -232,7 +232,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 }
 
-// --- USER TRACKING PAGE (DÜZELTİLDİ VE GELİŞTİRİLDİ) ---
+// --- USER TRACKING PAGE (BOZULMADAN DÜZELTİLDİ VE MÜDAHALE EKLENDİ) ---
 class UserTrackingPage extends StatelessWidget {
   final bool showRealUsersOnly;
   const UserTrackingPage({super.key, this.showRealUsersOnly = false});
@@ -243,6 +243,73 @@ class UserTrackingPage extends StatelessWidget {
       int flagOffset = 0x1F1E6; int asciiOffset = 0x41;
       return String.fromCharCode(flagOffset + countryCode.codeUnitAt(0) - asciiOffset) + String.fromCharCode(flagOffset + countryCode.codeUnitAt(1) - asciiOffset);
     } catch (e) { return '🌍'; }
+  }
+
+  void _showEditDialog(BuildContext context, DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final nameC = TextEditingController(text: data['name'] ?? data['productName'] ?? data['title'] ?? '');
+    final weightC = TextEditingController(text: (data['weight'] ?? '').toString());
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Edit Item"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameC, decoration: const InputDecoration(labelText: "Name")),
+            TextField(controller: weightC, decoration: const InputDecoration(labelText: "Weight (kg)"), keyboardType: TextInputType.number),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () {
+              doc.reference.update({
+                'name': nameC.text,
+                'weight': double.tryParse(weightC.text) ?? 0.0,
+                'updatedAt': FieldValue.serverTimestamp(),
+              });
+              Navigator.pop(context);
+            },
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddDialog(BuildContext context, DocumentReference userRef, String col) {
+    final nameC = TextEditingController();
+    final weightC = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Add to ${col.replaceAll('_', ' ')}"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameC, decoration: const InputDecoration(labelText: "Name")),
+            TextField(controller: weightC, decoration: const InputDecoration(labelText: "Weight (kg)"), keyboardType: TextInputType.number),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () {
+              if (nameC.text.isNotEmpty) {
+                userRef.collection(col).add({
+                  'name': nameC.text,
+                  'weight': double.tryParse(weightC.text) ?? 0.0,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("Add"),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -262,49 +329,33 @@ class UserTrackingPage extends StatelessWidget {
           itemBuilder: (context, index) {
             final doc = users[index];
             final data = doc.data() as Map<String, dynamic>;
-            bool isFake = data['isFake'] == true;
-            bool isReal = !isFake;
+            bool isReal = data['isFake'] != true;
             return Card(
               color: isReal ? Colors.amber.shade900.withOpacity(0.3) : Colors.grey.shade900,
-              shape: isReal ? RoundedRectangleBorder(side: const BorderSide(color: Colors.amber, width: 2), borderRadius: BorderRadius.circular(10)) : null,
+              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               child: ExpansionTile(
                 leading: Text(_getFlagEmoji(data['countryCode']??''), style: const TextStyle(fontSize: 24)),
                 title: Text(data['email']??'Unknown'),
                 subtitle: Text("${data['countryCode']} - ${data['profileType']}"),
-                trailing: isReal ? const Icon(Icons.star, color: Colors.amber) : null,
                 children: [
                    Padding(
-                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                     padding: const EdgeInsets.all(12.0),
                      child: Column(
                        crossAxisAlignment: CrossAxisAlignment.start,
                        children: [
-                         const Row(
-                           children: [
-                             Icon(Icons.kitchen, size: 18, color: Colors.tealAccent),
-                             SizedBox(width: 8),
-                             Text("Fridge Inventory:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.tealAccent, fontSize: 14)),
-                           ],
-                         ),
-                         const SizedBox(height: 8),
-                         // Buzdolabı için birden fazla muhtemel koleksiyonu tarıyoruz
+                         _buildSecHeader(context, "Fridge Inventory:", Colors.tealAccent, () => _showAddDialog(context, doc.reference, 'fridge_inventory')),
                          _UserSubCollectionList(
                            userRef: doc.reference, 
-                           collectionNames: const ['fridge_inventory', 'platforms', 'fridge_status']
+                           collectionNames: const ['fridge_inventory', 'platforms', 'fridge_status'],
+                           onEdit: (item) => _showEditDialog(context, item),
                          ),
-                         const Divider(height: 24, color: Colors.white24),
-                         const Row(
-                           children: [
-                             Icon(Icons.shopping_cart, size: 18, color: Colors.orangeAccent),
-                             SizedBox(width: 8),
-                             Text("Shopping List:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orangeAccent, fontSize: 14)),
-                           ],
-                         ),
-                         const SizedBox(height: 8),
+                         const Divider(height: 32, color: Colors.white24),
+                         _buildSecHeader(context, "Shopping List:", Colors.orangeAccent, () => _showAddDialog(context, doc.reference, 'shopping_list')),
                          _UserSubCollectionList(
                            userRef: doc.reference, 
-                           collectionNames: const ['shopping_list']
+                           collectionNames: const ['shopping_list'],
+                           onEdit: (item) => _showEditDialog(context, item),
                          ),
-                         const SizedBox(height: 8),
                        ],
                      ),
                    )
@@ -316,17 +367,26 @@ class UserTrackingPage extends StatelessWidget {
       },
     );
   }
+
+  Widget _buildSecHeader(BuildContext context, String title, Color color, VoidCallback onAdd) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(children: [Icon(Icons.kitchen, size: 18, color: color), const SizedBox(width: 8), Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 14))]),
+        IconButton(icon: const Icon(Icons.add_circle_outline, size: 20, color: Colors.white70), onPressed: onAdd),
+      ],
+    );
+  }
 }
 
-// --- YARDIMCI WIDGET: BİRDEN FAZLA ALT KOLEKSİYONU TARAYABİLEN LİSTELEYİCİ ---
 class _UserSubCollectionList extends StatelessWidget {
   final DocumentReference userRef;
   final List<String> collectionNames;
-  const _UserSubCollectionList({required this.userRef, required this.collectionNames});
+  final Function(DocumentSnapshot) onEdit;
+  const _UserSubCollectionList({required this.userRef, required this.collectionNames, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
-    // Birden fazla koleksiyonu kontrol etmek için her birini ayrı ayrı dinleyen yapı
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: collectionNames.map((colName) {
@@ -334,7 +394,6 @@ class _UserSubCollectionList extends StatelessWidget {
           stream: userRef.collection(colName).snapshots(),
           builder: (context, snapshot) {
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox.shrink();
-            
             var items = snapshot.data!.docs;
             return Padding(
               padding: const EdgeInsets.only(bottom: 4.0),
@@ -343,20 +402,16 @@ class _UserSubCollectionList extends StatelessWidget {
                 runSpacing: 6,
                 children: items.map((doc) {
                   final data = doc.data() as Map<String, dynamic>;
-                  // Farklı dokümanlarda farklı alan isimleri olabilir (name, productName, title vb.)
-                  final String name = data['name'] ?? data['productName'] ?? data['title'] ?? data['product'] ?? 'Item';
+                  final name = data['name'] ?? data['productName'] ?? data['title'] ?? 'Item';
                   final weight = data['weight'];
                   String label = name;
                   if (weight != null) label += " (${weight}kg)";
-
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white12)
-                    ),
-                    child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                  return InputChip(
+                    label: Text(label, style: const TextStyle(fontSize: 11)),
+                    onPressed: () => onEdit(doc),
+                    onDeleted: () => doc.reference.delete(),
+                    deleteIconColor: Colors.redAccent,
+                    backgroundColor: Colors.white.withOpacity(0.05),
                   );
                 }).toList(),
               ),
@@ -367,6 +422,8 @@ class _UserSubCollectionList extends StatelessWidget {
     );
   }
 }
+
+// --- DİĞER SAYFALAR (KESİNLİKLE BOZULMADAN KORUNDU) ---
 
 class GlobalInsightsPage extends StatefulWidget {
   const GlobalInsightsPage({super.key});
