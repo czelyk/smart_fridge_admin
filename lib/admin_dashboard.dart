@@ -232,7 +232,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 }
 
-// --- USER TRACKING PAGE (GELİŞTİRİLDİ) ---
+// --- USER TRACKING PAGE (DÜZELTİLDİ VE GELİŞTİRİLDİ) ---
 class UserTrackingPage extends StatelessWidget {
   final bool showRealUsersOnly;
   const UserTrackingPage({super.key, this.showRealUsersOnly = false});
@@ -280,23 +280,30 @@ class UserTrackingPage extends StatelessWidget {
                        children: [
                          const Row(
                            children: [
-                             Icon(Icons.kitchen, size: 16, color: Colors.tealAccent),
+                             Icon(Icons.kitchen, size: 18, color: Colors.tealAccent),
                              SizedBox(width: 8),
-                             Text("Fridge Inventory:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.tealAccent)),
+                             Text("Fridge Inventory:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.tealAccent, fontSize: 14)),
                            ],
                          ),
-                         const SizedBox(height: 4),
-                         _UserSubCollectionList(userRef: doc.reference, collectionName: 'fridge_inventory'),
-                         const SizedBox(height: 12),
+                         const SizedBox(height: 8),
+                         // Buzdolabı için birden fazla muhtemel koleksiyonu tarıyoruz
+                         _UserSubCollectionList(
+                           userRef: doc.reference, 
+                           collectionNames: const ['fridge_inventory', 'platforms', 'fridge_status']
+                         ),
+                         const Divider(height: 24, color: Colors.white24),
                          const Row(
                            children: [
-                             Icon(Icons.shopping_cart, size: 16, color: Colors.orangeAccent),
+                             Icon(Icons.shopping_cart, size: 18, color: Colors.orangeAccent),
                              SizedBox(width: 8),
-                             Text("Shopping List:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
+                             Text("Shopping List:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orangeAccent, fontSize: 14)),
                            ],
                          ),
-                         const SizedBox(height: 4),
-                         _UserSubCollectionList(userRef: doc.reference, collectionName: 'shopping_list'),
+                         const SizedBox(height: 8),
+                         _UserSubCollectionList(
+                           userRef: doc.reference, 
+                           collectionNames: const ['shopping_list']
+                         ),
                          const SizedBox(height: 8),
                        ],
                      ),
@@ -311,40 +318,52 @@ class UserTrackingPage extends StatelessWidget {
   }
 }
 
-// --- YARDIMCI WIDGET: ALT KOLEKSİYON LİSTELEME ---
+// --- YARDIMCI WIDGET: BİRDEN FAZLA ALT KOLEKSİYONU TARAYABİLEN LİSTELEYİCİ ---
 class _UserSubCollectionList extends StatelessWidget {
   final DocumentReference userRef;
-  final String collectionName;
-  const _UserSubCollectionList({required this.userRef, required this.collectionName});
+  final List<String> collectionNames;
+  const _UserSubCollectionList({required this.userRef, required this.collectionNames});
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: userRef.collection(collectionName).snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox(height: 20, child: LinearProgressIndicator(minHeight: 2));
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Text("No items found.", style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic));
-        
-        var items = snapshot.data!.docs;
-        return Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: items.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            final name = data['name'] ?? data['productName'] ?? 'Item';
-            final category = data['category'] ?? '';
-            final weight = data['weight'];
-            String label = name;
-            if (weight != null) label += " (${weight}kg)";
+    // Birden fazla koleksiyonu kontrol etmek için her birini ayrı ayrı dinleyen yapı
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: collectionNames.map((colName) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: userRef.collection(colName).snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox.shrink();
+            
+            var items = snapshot.data!.docs;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4.0),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: items.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  // Farklı dokümanlarda farklı alan isimleri olabilir (name, productName, title vb.)
+                  final String name = data['name'] ?? data['productName'] ?? data['title'] ?? data['product'] ?? 'Item';
+                  final weight = data['weight'];
+                  String label = name;
+                  if (weight != null) label += " (${weight}kg)";
 
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white12)),
-              child: Text(label, style: const TextStyle(fontSize: 11)),
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white12)
+                    ),
+                    child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                  );
+                }).toList(),
+              ),
             );
-          }).toList(),
+          },
         );
-      },
+      }).toList(),
     );
   }
 }
@@ -604,7 +623,7 @@ class _MarketAnalysisPageState extends State<MarketAnalysisPage> {
              sections: _categoryData.entries.map((e) => PieChartSectionData(
                value: e.value, 
                color: _getColor(e.key), 
-               title: '${((e.value/_totalItems)*100).toStringAsFixed(0)}%', 
+               title: '${((e.value/(_totalItems == 0 ? 1 : _totalItems))*100).toStringAsFixed(0)}%', 
                radius: 60,
                titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)
              )).toList(), centerSpaceRadius: 40
